@@ -1,0 +1,159 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Live Sim 3D — Kranker</title>
+<link rel="stylesheet" href="./assets/app.css" />
+
+<!-- Three.js & controls (CDN) -->
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+
+<div class="toolbar">
+  <div class="brand"><div class="dot"></div><span>kranker · live-sim-3d</span></div>
+  <div style="flex:1"></div>
+  <input id="base" style="min-width:380px" placeholder="Artifacts Base URL (e.g. https://<org>.github.io/canon-core/artifacts)" />
+  <select id="era">
+    <option value="">Era: auto</option>
+    <option>60_BPF</option>
+    <option>40_BPF</option>
+    <option>0_APF</option>
+    <option>5_APF</option>
+  </select>
+  <button id="load">Load</button>
+</div>
+
+<div id="panel">
+  <div class="card"><b>Version / Index</b><pre id="meta">–</pre></div>
+  <div class="card"><b>Status</b><div id="status">Ready.</div></div>
+</div>
+
+<canvas id="viewport"></canvas>
+
+<script>
+const $ = (sel)=>document.querySelector(sel);
+const $meta = $('#meta');
+const $status = $('#status');
+const canvas = $('#viewport');
+
+let renderer, scene, cam, controls, plate;
+
+function logStatus(msg){ $status.textContent = msg; }
+function setMeta(obj){ $meta.textContent = JSON.stringify(obj, null, 2); }
+
+function init3D(){
+  renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+  resize();
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0c0c0c);
+
+  cam = new THREE.PerspectiveCamera(60, canvas.clientWidth/canvas.clientHeight, 0.1, 10000);
+  cam.position.set(60, 60, 60);
+
+  controls = new THREE.OrbitControls(cam, renderer.domElement);
+  controls.enableDamping = true;
+
+  const amb = new THREE.AmbientLight(0xffffff, 0.7);
+  scene.add(amb);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+  dir.position.set(50,100,30);
+  scene.add(dir);
+
+  const grid = new THREE.GridHelper(400, 40, 0x333333, 0x222222);
+  scene.add(grid);
+
+  animate();
+}
+function animate(){
+  requestAnimationFrame(animate);
+  controls && controls.update();
+  renderer.render(scene, cam);
+}
+function resize(){
+  const rect = canvas.getBoundingClientRect();
+  renderer.setSize(rect.width, rect.height, false);
+  cam.aspect = rect.width / rect.height;
+  cam.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+async function fetchJSON(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+  return r.json();
+}
+
+function makePlateFromPolygon(coords){
+  // coords: [[x,y],[x,y],...]
+  if (plate) { scene.remove(plate); plate.geometry.dispose(); }
+  const shape = new THREE.Shape();
+  coords.forEach((p,i)=>{ if(i===0) shape.moveTo(p[0], p[1]); else shape.lineTo(p[0], p[1]); });
+  const geom = new THREE.ShapeGeometry(shape);
+  const mat = new THREE.MeshPhongMaterial({color:0x444444, emissive:0x111111, side:THREE.DoubleSide});
+  plate = new THREE.Mesh(geom, mat);
+  plate.rotation.x = -Math.PI/2; // lay flat on XZ
+  plate.position.y = 0.01;
+  scene.add(plate);
+
+  // frame focus
+  const box = new THREE.Box3().setFromObject(plate);
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+  controls.target.copy(center);
+  cam.position.set(center.x + size.length()*0.8, size.length()*0.7, center.z + size.length()*0.8);
+}
+
+async function loadAll(){
+  try{
+    const base = $('#base').value.trim();
+    if(!base){ alert('Please set Artifacts Base URL'); return; }
+    const eraPick = $('#era').value.trim() || null;
+
+    logStatus('Loading artifacts...');
+    const ver = await fetchJSON(base + '/version.json');
+    const idx = await fetchJSON(base + '/canon-index.json');
+    setMeta({version:ver, index:idx});
+    logStatus('Artifacts OK. Loading atlas...');
+
+    // Optional: draw zones from canon-core repo (assume sibling repo pages or raw link)
+    // Try artifacts' sibling guess first, else allow CORS raw path.
+    // You can change ATLAS_URL to your canonical zones.geojson hosting.
+    const atlasGuesses = [
+      base.replace(/\/artifacts\/?$/,'') + '/master/atlases/zones.geojson',                        // if same pages root
+      base.replace('/artifacts','') + '/master/atlases/zones.geojson'
+    ];
+
+    let zones=null, lastErr=null;
+    for (const u of atlasGuesses){
+      try{ zones = await fetchJSON(u); } catch(e){ lastErr=e; }
+      if(zones) { logStatus('Atlas loaded: '+u); break; }
+    }
+    if(!zones){
+      logStatus('Atlas not loaded (CORS or URL). Only artifacts shown.');
+    } else {
+      // pick first polygon
+      const feat = zones.features?.[0];
+      const poly = feat?.geometry?.coordinates?.[0] || [];
+      // coords are [lng,lat] like; we’ll treat as planar for now:
+      const coords = poly.map(p=>[p[0], p[1]]);
+      makePlateFromPolygon(coords);
+    }
+
+    // Era-driven future selection (placeholder)
+    if(eraPick){
+      logStatus(`Era filter applied: ${eraPick} (ready to select scene/entities by era)`);
+    } else {
+      logStatus('Era: auto (use data active_by_era when selecting)');
+    }
+
+  }catch(err){
+    console.error(err);
+    logStatus('Error: '+err.message);
+  }
+}
+
+init3D();
+$('#load').addEventListener('click', loadAll);
+
+// Optional: prefill for quick test (change to your GitHub Pages URL)
+// Example: https://<org>.github.io/canon-core/artifacts
+// document.getElementById('base').value = 'https://YOUR_ORG.github.io/canon-core/artifacts';
+</script>
