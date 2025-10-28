@@ -1,9 +1,17 @@
-<!doctype html><html lang="en"><meta charset="utf-8">
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kranker · Live Sim (Lite)</title>
-<link rel="stylesheet" href="./assets/app.css">
-<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+.toolbar{display:flex;gap:.5rem;align-items:center;padding:.6rem .8rem;background:#121212;color:#eee;position:sticky;top:0}
+.brand{font-weight:700}.spacer{flex:1}
+#viewport{position:fixed;inset:0}
+input,button{background:#1b1b1b;color:#e9e9e9;border:1px solid #333;padding:.35rem .5rem;border-radius:.35rem}
+button{cursor:pointer}
+</style>
+
 <body>
 <div class="toolbar">
   <div class="brand"><b>kranker</b> · live-sim-3d</div><div class="spacer"></div>
@@ -11,25 +19,49 @@
   <button id="load">Load</button>
 </div>
 <canvas id="viewport"></canvas>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 const $=s=>document.querySelector(s); $('#base').value='https://jimage3.github.io/canon-core';
-let r,s,c,ctl;
-function init(){r=new THREE.WebGLRenderer({canvas:$('#viewport'),antialias:true});resize();
-s=new THREE.Scene(); s.background=new THREE.Color(0x0c0c0c);
-c=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e5); c.position.set(120,120,120);
-ctl=new THREE.OrbitControls(c,$('#viewport')); s.add(new THREE.DirectionalLight(0xffffff,1).position.set(100,200,100)); s.add(new THREE.AmbientLight(0x777777));
-(function loop(){requestAnimationFrame(loop); ctl.update(); r.render(s,c)})()}
-function resize(){r?.setSize(innerWidth,innerHeight); if(c){c.aspect=innerWidth/innerHeight; c.updateProjectionMatrix()}}
+let renderer,scene,camera,ctl;
+function init(){
+  renderer=new THREE.WebGLRenderer({canvas:$('#viewport'),antialias:true});
+  resize();
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0c0c0c);
+  camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,1e5);
+  camera.position.set(100,100,100);
+  ctl=new THREE.OrbitControls(camera,$('#viewport'));
+  const light=new THREE.DirectionalLight(0xffffff,1);
+  light.position.set(100,200,100);
+  scene.add(light);
+  scene.add(new THREE.AmbientLight(0x888888));
+  requestAnimationFrame(function loop(){requestAnimationFrame(loop); ctl.update(); renderer.render(scene,camera)});
+}
+function resize(){renderer?.setSize(innerWidth,innerHeight); if(camera){camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix()}}
 addEventListener('resize',resize);
 async function load(){
-  const base=$('#base').value.replace(/\/$/,''); const url=`${base}/master/atlases/zones.geojson`;
-  const fc=await fetch(url).then(x=>x.json()); const mat=new THREE.MeshPhongMaterial({color:0x5566ff,transparent:true,opacity:.65});
-  (fc.features||[]).forEach(f=>{ if(f.geometry?.type!=='Polygon') return;
-    const pts=f.geometry.coordinates[0].map(([x,y])=>new THREE.Vector2(x,y)); const sh=new THREE.Shape();
-    sh.moveTo(pts[0].x,pts[0].y); for(let i=1;i<pts.length;i++) sh.lineTo(pts[i].x,pts[i].y);
-    const geo=new THREE.ExtrudeGeometry(sh,{depth:2,bevelEnabled:false}); const m=new THREE.Mesh(geo,mat); m.position.z=-1; s.add(m);
-  });
+  try {
+    const base=$('#base').value.replace(/\/$/,'');
+    const url=`${base}/master/atlases/zones.geojson`;
+    const res=await fetch(url);
+    if(!res.ok) throw new Error('Cannot load '+url);
+    const fc=await res.json();
+    const mat=new THREE.MeshPhongMaterial({color:0x00ff88,transparent:true,opacity:0.5});
+    (fc.features||[]).forEach(f=>{
+      if(f.geometry?.type!=='Polygon') return;
+      const pts=f.geometry.coordinates[0].map(([x,y])=>new THREE.Vector2(x,y));
+      const shape=new THREE.Shape(pts);
+      const geo=new THREE.ExtrudeGeometry(shape,{depth:2,bevelEnabled:false});
+      const mesh=new THREE.Mesh(geo,mat);
+      mesh.position.z=-1;
+      scene.add(mesh);
+    });
+  } catch(e){alert('Error: '+e.message)}
 }
-$('#load').addEventListener('click',load); init();
+$('#load').addEventListener('click',load);
+init();
 </script>
-</body></html>
+</body>
+</html>
