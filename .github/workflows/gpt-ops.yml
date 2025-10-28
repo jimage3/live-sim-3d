@@ -108,4 +108,4 @@ jobs:
           git push origin HEAD:${DEFAULT_BRANCH}
 
       - name: Done
-        run: echo "✅ Done: ${ steps.prep.outputs.task }"
+        run: echo "✅ Done: ${{ steps.prep.outputs.task }}"
